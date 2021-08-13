@@ -8,7 +8,6 @@ const logger = new logger_1.default("Main");
 const bot_1 = __importDefault(require("./managers/bot"));
 const discord_js_1 = require("discord.js");
 const constants_1 = require("./constants");
-const codes_json_1 = require("./codes.json");
 require("fs");
 !async function () {
     const [client] = await Promise.all([bot_1.default]).catch(err => {
@@ -54,18 +53,34 @@ require("fs");
         const firstArg = args.shift();
         if (!firstArg)
             return;
-        const command = firstArg.toLowerCase();
         if (constants_1.Constants.VERIFICATION_CHANNELS.includes(message.channel.id)) {
-            if (codes_json_1.codes.includes(message.content)) {
-                if (message.member.roles.cache.find(role => role.name == "Delegate")) {
+            if (constants_1.Constants.CODES.includes(message.content)) {
+                const logs = admin.channels.cache.get('874600703786614804');
+                if (message.member.roles.cache.find(role => role.name === "Delegate")) {
                     message.reply({ embeds: [createEmbed(`Sorry, you are already registered.`, constants_1.Constants.RED)] });
                     return;
                 }
-                if (await message.member.roles.add(message.guild.roles.cache.find(r => r.name == "Delegate")).catch(() => {
+                const data = [];
+                (await logs.messages.fetch()).forEach((value) => {
+                    data.push(value.content);
+                });
+                let stringified = "";
+                data.forEach(da => {
+                    stringified += da.split(" ");
+                });
+                let d = stringified.split(",");
+                d = d.filter(da => da.length === 8 && /^\d+$/.test(da));
+                if (d.includes(message.content)) {
+                    report(`${message.author.id} tried to input a code that was already used before. Code: ${message.content} in ${guild.name}`);
+                    message.reply({ embeds: [createEmbed("This code has already been used. Please try again.", "RED")] });
+                    return;
+                }
+                if (await message.member.roles.add(message.guild.roles.cache.find(r => r.name === "Delegate")).catch(() => {
                     message.reply({ embeds: [createEmbed("Sorry I cannot locate the Delegate role. Please contact your nearest `CMUN IT` Representative for further assistance.", constants_1.Constants.RED)] });
                     report(`Delegate Role cannot be found in ${message.guild.name}.`);
                     return;
                 })) {
+                    logs.send(`Code: ${message.content} User: ${message.author.id} Server: ${guild.name}`);
                     message.channel.send({ embeds: [createEmbed("You have successfully registered!")] });
                 }
             }
@@ -78,16 +93,16 @@ require("fs");
                 report(`${message.author.id} is spamming the verification channels in ${message.guild.name}.`);
             }
         }
-        if (message.content.startsWith('=POI') || message.content.startsWith('=poi')) {
+        if (message.content.toLowerCase().startsWith('=chit')) {
             const ids = [message.author.id];
             const mem = message.mentions.members?.first();
             let msg = "";
             if (mem) {
-                msg = `${message.member.displayName}'s POI to ${mem?.displayName}`;
+                msg = `${message.member.displayName}'s chit to ${mem?.displayName}`;
                 ids.push(mem.id);
             }
             else {
-                msg = `${message.member.displayName}'s POI`;
+                msg = `${message.member.displayName}'s chit`;
             }
             msg = msg.substring(0, 100);
             const category = constants_1.Constants.POI_CATEGORIES[constants_1.Constants.GUILDS.indexOf(message.guild.id)];
@@ -100,9 +115,9 @@ require("fs");
             ids.forEach(id => {
                 poi_ch.permissionOverwrites.edit(id, { VIEW_CHANNEL: true, ATTACH_FILES: true, SEND_MESSAGES: true, ADD_REACTIONS: true });
             });
-            await poi_ch.send({ embeds: [createEmbed("Archive POI by using `=archive`", constants_1.Constants.AQUA)] });
+            await poi_ch.send({ embeds: [createEmbed("Archive chit by using `=archive`", constants_1.Constants.AQUA)] });
         }
-        else if (message.content == "=archive" && constants_1.Constants.POI_CATEGORIES.includes(message.channel.parentId)) {
+        else if (message.content === "=archive" && message.member.permissions.has('ADMINISTRATOR') && constants_1.Constants.POI_CATEGORIES.includes(message.channel.parentId)) {
             const archive = constants_1.Constants.ARCHIVE_CHANNELS[constants_1.Constants.GUILDS.indexOf(message.guild.id)];
             message.channel.setParent(archive);
             await message.channel.permissionOverwrites.create(guild.id, { VIEW_CHANNEL: false });
@@ -172,11 +187,69 @@ require("fs");
                 const percentage = votes.votes.yes.count / (votes.votes.yes.count + votes.votes.no.count) * 100;
                 voteMessage.edit({ embeds: [createEmbed(`**Concluded**\nPercentage of 'yes votes' is \`${percentage.toFixed(2)}%\``, 'BLUE')], components: [buttonsRow(true, votes.votes.yes.count, votes.votes.no.count)] });
                 clearInterval(votes.interval);
-                const logChannel = await guild.channels.fetch('874580965048078377');
+                const logChannel = await guild.channels.fetch('874174044612747338');
                 if (logChannel?.isText()) {
                     logChannel.send({ embeds: [votersResult(votes, delRole)] });
                 }
                 votesCollection.delete(voteMessage.id);
+            });
+        }
+        if (message.content.toLowerCase() === "=tc") {
+            if (guild.channels.cache.find(ch => ch.name === message.member?.displayName && ch.type === 'GUILD_TEXT')) {
+                message.reply({ embeds: [createEmbed("Sorry but you have already created a text channel.", "RED")] });
+                return;
+            }
+            guild.channels.create(`${message.member.displayName}`, { type: "GUILD_TEXT", parent: constants_1.Constants.LOBBY_CATEGORIES[constants_1.Constants.GUILDS.indexOf(guild.id)], permissionOverwrites: [{ id: guild.id, deny: ['VIEW_CHANNEL'] }, { id: message.author.id, allow: ['VIEW_CHANNEL', 'SEND_MESSAGES', 'ATTACH_FILES', 'ADD_REACTIONS'] }] });
+        }
+        else if (message.content.toLowerCase() === "=vc") {
+            if (guild.channels.cache.find(ch => ch.name === message.member?.displayName && ch.type === 'GUILD_VOICE')) {
+                message.reply({ embeds: [createEmbed("Sorry but you have already created a voice channel.", "RED")] });
+                return;
+            }
+            guild.channels.create(`${message.member.displayName}`, { type: "GUILD_VOICE", parent: constants_1.Constants.LOBBY_CATEGORIES[constants_1.Constants.GUILDS.indexOf(guild.id)], permissionOverwrites: [{ id: guild.id, deny: ['VIEW_CHANNEL'] }, { id: message.author.id, allow: ['VIEW_CHANNEL', 'CONNECT', 'SPEAK', 'STREAM'] }] });
+        }
+        if (message.content.toLowerCase().startsWith("=invitevc") || message.content.toLowerCase().startsWith("=removevc")) {
+            const channel = guild.channels.cache.find(ch => ch.name === `${message.member?.displayName}` && ch.type === 'GUILD_VOICE');
+            if (!channel) {
+                message.reply({ embeds: [createEmbed("You don't have an active Voice Channel. Please create one with `=VC`.", "RED")] });
+                return;
+            }
+            const opt = message.content.toLowerCase().startsWith("=invitevc") ? "invite" : "remove";
+            if (!message.mentions.members?.first()) {
+                message.reply({ embeds: [createEmbed(`You must mention someone to ${opt} them.`, "RED")] });
+                return;
+            }
+            message.mentions.members?.forEach((mem) => {
+                if (opt === "invite") {
+                    channel.permissionOverwrites.edit(mem.id, { 'CONNECT': true, 'VIEW_CHANNEL': true, 'SPEAK': true, 'STREAM': true });
+                    message.reply({ embeds: [createEmbed("User is now allowed to join your Voice Channel!")] });
+                }
+                else {
+                    channel.permissionOverwrites.delete(mem.id);
+                    message.reply({ embeds: [createEmbed("User is now removed from your Voice Channel!", "RED")] });
+                }
+            });
+        }
+        else if (message.content.toLowerCase().startsWith("=invitetc") || message.content.toLowerCase().startsWith("=removetc")) {
+            const channel = guild.channels.cache.find(ch => ch.name === `${message.member?.displayName}`.toLowerCase() && ch.type === 'GUILD_TEXT');
+            if (!channel) {
+                message.reply({ embeds: [createEmbed("You don't have an active Text Channel. Please create one with `=TC`.", "RED")] });
+                return;
+            }
+            const opt = message.content.toLowerCase().startsWith("=invitetc") ? "invite" : "remove";
+            if (!message.mentions.members?.first()) {
+                message.reply({ embeds: [createEmbed("You must mention someone to invite them.", "RED")] });
+                return;
+            }
+            message.mentions.members?.forEach((mem) => {
+                if (opt === "invite") {
+                    channel.permissionOverwrites.edit(mem.id, { 'SEND_MESSAGES': true, 'VIEW_CHANNEL': true, 'ATTACH_FILES': true, 'ADD_REACTIONS': true });
+                    message.reply({ embeds: [createEmbed("User is now allowed to join your Text Channel!")] });
+                }
+                else {
+                    channel.permissionOverwrites.delete(mem.id);
+                    message.reply({ embeds: [createEmbed("User is now removed from your Text Channel!", "RED")] });
+                }
             });
         }
     });

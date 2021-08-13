@@ -13,7 +13,7 @@ if(!TOKEN){
 const bot = new Promise<Client>((res, rej) => {
     const client = new Client({ intents: ['DIRECT_MESSAGES', 'DIRECT_MESSAGE_REACTIONS','DIRECT_MESSAGE_TYPING', 'GUILDS', 'GUILD_BANS',
     'GUILD_INTEGRATIONS', 'GUILD_INVITES', 'GUILD_MEMBERS', 'GUILD_MESSAGES', 'GUILD_MESSAGE_REACTIONS',
-    'GUILD_PRESENCES', 'GUILD_VOICE_STATES', 'GUILD_WEBHOOKS']});
+    'GUILD_PRESENCES', 'GUILD_VOICE_STATES', 'GUILD_WEBHOOKS'], partials: ['MESSAGE']});
 
     client.login(TOKEN).catch(err => {
         logger.error("Failed to login to Discord.");
