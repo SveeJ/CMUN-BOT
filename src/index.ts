@@ -258,29 +258,57 @@ import fs from 'fs';
 
         // VC + TC --> 
 
+        const msgs = (await (admin.channels.cache.get(Constants.CHANNEL_LOG) as TextChannel).messages.fetch());
+        const userMsg: string[] = [];
+        msgs.forEach(msg => {
+            if(msg.content.split(" ").includes(message.author.id) && msg.content.split(" ")) {
+                userMsg.push(msg.content);
+            }
+        });
+
         if(message.content.toLowerCase() === "=tc") {
 
-            if(guild.channels.cache.find(ch => ch.name === message.member?.displayName && ch.type === 'GUILD_TEXT')) {
-                message.reply({ embeds: [ createEmbed("Sorry but you have already created a text channel.", "RED") ] });
+            if(userMsg.find(msg => msg.includes('TEXT'))) {
+                message.reply({ embeds: [createEmbed("Sorry you already have an active `Text Channel`.", "RED")] });
                 return;
-            }
+            };
 
-            guild.channels.create(`${message.member.displayName}`, { type: "GUILD_TEXT", parent: Constants.LOBBY_CATEGORIES[Constants.GUILDS.indexOf(guild.id)], permissionOverwrites: [{ id: guild.id, deny: ['VIEW_CHANNEL'] }, { id: message.author.id, allow: ['VIEW_CHANNEL', 'SEND_MESSAGES', 'ATTACH_FILES', 'ADD_REACTIONS'] }] });
+            const channel = await guild.channels.create(`${message.member.displayName}`, { type: "GUILD_TEXT", parent: Constants.LOBBY_CATEGORIES[Constants.GUILDS.indexOf(guild.id)], permissionOverwrites: [{ id: guild.id, deny: ['VIEW_CHANNEL'] }, { id: message.author.id, allow: ['VIEW_CHANNEL', 'SEND_MESSAGES', 'ATTACH_FILES', 'ADD_REACTIONS'] }] });
+            const ch = admin.channels.cache.get(Constants.CHANNEL_LOG) as TextChannel;
+            ch.send(`Channel: ${channel.id} User: ${message.author.id} Type: TEXT`).catch(() => null); 
         }
         else if(message.content.toLowerCase() === "=vc") {
+
+            if(userMsg.find(msg => msg.includes('VOICE'))) {
+                message.reply({ embeds: [createEmbed("Sorry you already have an active `Voice Channel`.", "RED")] });
+                return;
+            };
 
             if(guild.channels.cache.find(ch => ch.name === message.member?.displayName && ch.type === 'GUILD_VOICE')) {
                 message.reply({ embeds: [ createEmbed("Sorry but you have already created a voice channel.", "RED") ] });
                 return;
             }
 
-            guild.channels.create(`${message.member.displayName}`, { type: "GUILD_VOICE", parent: Constants.LOBBY_CATEGORIES[Constants.GUILDS.indexOf(guild.id)], permissionOverwrites: [{ id: guild.id, deny: ['VIEW_CHANNEL'] }, { id: message.author.id, allow: ['VIEW_CHANNEL', 'CONNECT', 'SPEAK', 'STREAM'] }] });
+            const channel = await guild.channels.create(`${message.member.displayName}`, { type: "GUILD_VOICE", parent: Constants.LOBBY_CATEGORIES[Constants.GUILDS.indexOf(guild.id)], permissionOverwrites: [{ id: guild.id, deny: ['VIEW_CHANNEL'] }, { id: message.author.id, allow: ['VIEW_CHANNEL', 'CONNECT', 'SPEAK', 'STREAM'] }] });
+            const ch = admin.channels.cache.get(Constants.CHANNEL_LOG) as TextChannel;
+            ch.send(`Channel: ${channel.id} User: ${message.author.id} Type: VOICE`).catch(() => null); 
         }
         
         if(message.content.toLowerCase().startsWith("=invitevc") || message.content.toLowerCase().startsWith("=removevc")) {
-            const channel = guild.channels.cache.find(ch => ch.name === `${message.member?.displayName}` && ch.type === 'GUILD_VOICE');
-            if(!channel) {
+            
+            const vcMsg = userMsg.find(msg => msg.includes('VOICE'));
+
+            const chID = vcMsg?.split(" ")[1];
+
+            if(!chID) {
                 message.reply({ embeds: [ createEmbed("You don't have an active Voice Channel. Please create one with `=VC`.", "RED") ] });
+                return;
+            }
+
+            const channel = guild.channels.cache.get(chID);
+
+            if(!channel) {
+                message.reply({ embeds: [createEmbed("We could not find your channel. Please contact your nearest `CMUN IT Representative` for further assistance.", "RED")] });
                 return;
             }
 
@@ -303,9 +331,20 @@ import fs from 'fs';
             });
         }
         else if(message.content.toLowerCase().startsWith("=invitetc") || message.content.toLowerCase().startsWith("=removetc")) {
-            const channel = guild.channels.cache.find(ch => ch.name === `${message.member?.displayName}`.toLowerCase() && ch.type === 'GUILD_TEXT');
-            if(!channel) {
+            
+            const tcMsg = userMsg.find(msg => msg.includes('TEXT'));
+
+            const chID = tcMsg?.split(" ")[1];
+
+            if(!chID) {
                 message.reply({ embeds: [ createEmbed("You don't have an active Text Channel. Please create one with `=TC`.", "RED") ] });
+                return;
+            }
+
+            const channel = guild.channels.cache.get(chID);
+
+            if(!channel) {
+                message.reply({ embeds: [createEmbed("We could not find your channel. Please contact your nearest `CMUN IT Representative` for further assistance.", "RED")] });
                 return;
             }
 
@@ -326,6 +365,36 @@ import fs from 'fs';
                     message.reply({embeds: [ createEmbed("User is now removed from your Text Channel!", "RED") ]});
                 }
             });
+        }
+
+        else if(message.content.toLowerCase().startsWith("=rename")) {
+
+            const opt = message.content.toLowerCase().startsWith("=renametc") ? "TEXT" : message.content.toLowerCase().startsWith("=renamevc") ? "VOICE" : undefined;
+
+            if(!opt) {
+                message.reply({ embeds: [ createEmbed("Please use `=renametc [name]` or `=renamevc [name]` to rename your personal channels.", "RED") ] });
+                return;
+            }
+
+            const chID = userMsg.find(msg => msg.includes(opt));
+
+            if(!chID) {
+                message.reply({ embeds: [ createEmbed(`You do not have a personal \`${opt}\` channel to rename. Use \`=TC\` or \`=VC\` to create your own.`, "RED") ] });
+                return;
+            }
+
+            const channel = guild.channels.cache.get(chID.split(" ")[1]);
+
+            if(!channel) {
+                message.reply({ embeds: [createEmbed("We could not find your channel. Please contact your nearest `CMUN IT Representative` for further assistance.", "RED")] });
+                return;
+            }
+
+            const name = message.content.split(" ").slice(1).join(" ").substring(0, 100);
+
+            (channel as GuildChannel).setName(name);
+
+            message.reply({ embeds: [createEmbed("Channel successfully renamed!", "GREEN")] });
         }
     });
 
