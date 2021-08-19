@@ -392,7 +392,7 @@ import fs from 'fs';
 
             const name = message.content.split(" ").slice(1).join(" ").substring(0, 100);
 
-            (channel as GuildChannel).setName(name);
+            (channel as GuildChannel).setName(name).catch(() => null);
 
             message.reply({ embeds: [createEmbed("Channel successfully renamed!", "GREEN")] });
         }

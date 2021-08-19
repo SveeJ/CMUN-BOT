@@ -201,7 +201,6 @@ require("fs");
                 userMsg.push(msg.content);
             }
         });
-        console.log(JSON.stringify(userMsg));
         if (message.content.toLowerCase() === "=tc") {
             if (userMsg.find(msg => msg.includes('TEXT'))) {
                 message.reply({ embeds: [createEmbed("Sorry you already have an active `Text Channel`.", "RED")] });
@@ -299,8 +298,7 @@ require("fs");
                 return;
             }
             const name = message.content.split(" ").slice(1).join(" ").substring(0, 100);
-            console.log(name);
-            channel.setName(name);
+            channel.setName(name).catch(() => null);
             message.reply({ embeds: [createEmbed("Channel successfully renamed!", "GREEN")] });
         }
     });
