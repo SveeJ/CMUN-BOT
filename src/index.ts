@@ -3,7 +3,7 @@ import Logger from "./logger";
 const logger = new Logger("Main");
 
 import bot from "./managers/bot"
-import { MessageButton, MessageActionRow, CollectorFilter, ColorResolvable, Message, MessageEmbed, MessageReaction, TextChannel, User, VoiceChannel, Interaction, GuildMember, Role, Snowflake, GuildChannel, Guild, CategoryChannel } from "discord.js";
+import { MessageButton, MessageActionRow, CollectorFilter, ColorResolvable, Message, MessageEmbed, MessageReaction, TextChannel, User, VoiceChannel, Interaction, GuildMember, Role, Snowflake, GuildChannel, Guild, CategoryChannel, MessageAttachment } from "discord.js";
 import { Constants } from "./constants";
 import fs from 'fs';
 
@@ -159,36 +159,57 @@ import fs from 'fs';
 
         // Archive -->
 
-        else if(message.content === "=archive" && message.member.permissions.has('ADMINISTRATOR')) {
-            if(!((message.channel as TextChannel).parent?.name === 'chits')) {
+        else if(message.content === "=archive" && message.member.permissions.has('ADMINISTRATOR') && message.channel.type === 'GUILD_TEXT') {
+            if(!((message.channel as TextChannel).parent?.name.toLowerCase() === 'chits')) {
                 return;
             }
-            const archive = await getCategory('archive', guild);
+            const archive = guild.channels.cache.find(ch => ch.name.toLowerCase() === 'archives');
 
-            if(!archive) {
+            if(!archive || archive.type != 'GUILD_TEXT') {
                 message.reply({ embeds: [createEmbed("We encountered an issue. Please contact your nearest `CMUN IT Representative` for further assistance.", "RED")] });
                 return;
             }
 
-            (message.channel as TextChannel).setParent(archive);
+            const msgs = (await (message.channel as TextChannel).messages.fetch()).map(m => m.content).reverse().join('\n\n');
 
-            await (message.channel as TextChannel).permissionOverwrites.create(guild.id, { VIEW_CHANNEL: false });
+            (archive as TextChannel).send({ embeds: [ createEmbed(`Archive for: \`${(message.channel as TextChannel).name}\``, "AQUA") ], files: [{ name: "archive.txt", attachment: Buffer.from(msgs, 'utf-8') }]  });
 
-            message.channel.send({embeds: [createEmbed("Archived.", "RED")]});
+            await message.channel.delete();
         }
 
         // Vote -->
 
-        else if(message.content.startsWith("=vote") && Constants.EB_COMMAND_CHANNELS.includes(message.channel.id)) {
+        else if(message.content.startsWith("=vote") && message.channel.isText()) {
 
-            const motion = args.join(' ');
+            if(!((message.channel as TextChannel).name === 'eb-commands' && message.member.permissions.has('ADMINISTRATOR'))) {
+                message.reply({ embeds: [createEmbed("You cannot create a vote.", "RED")] });
+                return;
+            }  
+
+            const last_arg = args[args.length - 1];
+
+            if(!last_arg) return;
+
+            if(last_arg[0] != '(' || last_arg[last_arg.length - 1] != ')') {
+                message.reply({ embeds: [createEmbed(`Use \`=vote [Name] [(time)]\` to specify time. \n\n \`Example: =vote Test Motion (30)\``, "RED")] });
+                return;
+            }
+
+            const motion = args.slice(0, -1).join(' ');
 
             if(!motion) {
                 message.reply({embeds: [createEmbed("Please enter a name for the motion to be voted on.", "RED")]});
                 return;
             }
 
-            const voting_ch = guild.channels.cache.get(Constants.VOTING_CHANNELS[Constants.GUILDS.indexOf(guild.id)]) as TextChannel;
+            const time = args[args.length - 1].substring(1, args[args.length - 1].length - 1);
+
+            if(!(/^\d+$/.test(time))) {
+                message.reply({ embeds: [createEmbed(`Time specified must be a valid number.`, "RED")] });
+                return;
+            }
+
+            const voting_ch = guild.channels.cache.find(ch => ch.name === 'voting') as TextChannel;
             const delRole = guild.roles.cache.find(r => r.name === "Delegate");
 
             if(!voting_ch || !delRole) {
@@ -196,14 +217,13 @@ import fs from 'fs';
                 report(`Delegate role or Voting Channel cannot be found in ${guild.name}`);
                 return;
             }
-            
-            const time = 60;
+        
             let count = 1;
             const voteMessage = await voting_ch.send({embeds: [createEmbed(`Voting on motion \`${motion}\`\n**In progress**\n\n**Timer**\nTime Left: ${time}s`, 'BLUE')], components: [buttonsRow(false, 0, 0)]})
 
             const interval = setInterval(() => {
                 if (!voteMessage.deleted) {
-                    voteMessage.edit({embeds: [createEmbed(`Voting on motion \`${motion}\`\n**In progress**\n\n**Timer**\nTime Left: ${time - 5*count}s`, 'BLUE')]})
+                    voteMessage.edit({embeds: [createEmbed(`Voting on motion \`${motion}\`\n**In progress**\n\n**Timer**\nTime Left: ${parseInt(time) - 5*count}s`, 'BLUE')]})
                 }
                 count++;
             }, 5000)
@@ -217,7 +237,7 @@ import fs from 'fs';
   
             message.reply({embeds:[createEmbed("Vote has been created successfully!")]});
 
-            const voteCollector = voteMessage.createMessageComponentCollector({componentType: 'BUTTON', time: 60000})
+            const voteCollector = voteMessage.createMessageComponentCollector({componentType: 'BUTTON', time: parseInt(time)*1000})
 
             voteCollector.on('collect', (i: Interaction) => {
                 if (!i.isButton()) return;
@@ -259,11 +279,14 @@ import fs from 'fs';
                 if (!votes) return;
 
                 const percentage = votes.votes.yes.count/(votes.votes.yes.count + votes.votes.no.count)*100;
-                voteMessage.edit({embeds: [createEmbed(`**Concluded**\nPercentage of 'yes votes' is \`${percentage.toFixed(2)}%\``, 'BLUE')], components: [buttonsRow(true, votes.votes.yes.count, votes.votes.no.count)]})
+                voteMessage.edit({embeds: [createEmbed(`${motion}\n\n**Concluded**\nPercentage of 'yes votes' is \`${percentage.toFixed(2)}%\``, 'BLUE')], components: [buttonsRow(true, votes.votes.yes.count, votes.votes.no.count)]})
                 clearInterval(votes.interval);
-                const logChannel = await guild.channels.fetch('874174044612747338')
+                const logChannel = guild.channels.cache.find(ch => ch.name === 'voting-logs');
                 if (logChannel?.isText()) {
-                    logChannel.send({embeds: [votersResult(votes, delRole)]})
+                    logChannel.send({embeds: [votersResult(votes, delRole)]});
+                }
+                else {
+                    report(`Can't find voting-logs channel in ${guild.name}`);
                 }
                 votesCollection.delete(voteMessage.id)
             })
@@ -279,7 +302,7 @@ import fs from 'fs';
             if(!msgs) return;
 
             msgs.forEach(msg => {
-                if(msg.content.split(" ").includes(message.author.id) && msg.content.split(" ")) {
+                if(msg.content.split(" ").includes(message.author.id)) {
                     userMsg.push(msg.content);
                 }
             });
@@ -300,7 +323,7 @@ import fs from 'fs';
 
                 const channel = await guild.channels.create(`${message.member.displayName}`, { type: "GUILD_TEXT", parent: cat, permissionOverwrites: [{ id: guild.id, deny: ['VIEW_CHANNEL'] }, { id: message.author.id, allow: ['VIEW_CHANNEL', 'SEND_MESSAGES', 'ATTACH_FILES', 'ADD_REACTIONS'] }] });
                 const ch = admin.channels.cache.get(Constants.CHANNEL_LOG) as TextChannel;
-                ch.send(`Channel: ${channel.id} User: ${message.author.id} Type: TEXT`).catch(() => null); 
+                ch.send(`Channel: ${channel.id} User: ${message.author.id} Type: TEXT Member: ${message.member.displayName}`).catch(() => null); 
             }
             else if(message.content.toLowerCase() === "=vc") {
 
@@ -424,11 +447,32 @@ import fs from 'fs';
 
                 const name = message.content.split(" ").slice(1).join(" ").substring(0, 100);
 
+                if(Constants.BANNED_NAMES.includes(name)) {
+                    message.reply({ embeds: [ createEmbed("You cannot rename your channel to that name. Please use another name.", "RED") ] });
+                    return;
+                }
+
                 (channel as GuildChannel).setName(name).catch(() => null);
 
                 message.reply({ embeds: [createEmbed("Channel successfully renamed!", "GREEN")] });
             }
         }
+    });
+
+    client.on('channelDelete', async ch => {
+
+        const admin_ch = admin.channels.cache.get(Constants.CHANNEL_LOG) as TextChannel;
+
+        const msgs = (await (admin_ch).messages.fetch().catch(() => undefined));
+        const userMsg: string[] = [];
+
+        if(!msgs) return;
+
+        const msg = msgs.find(m => m.content.split(" ").includes(ch.id));
+
+        if(!msg) return;
+
+        admin_ch.messages.delete(msg);
     });
 
     logger.info("App is now online!");
@@ -468,13 +512,20 @@ function votersResult(votesData: {votes: {yes: {members: GuildMember[], count: n
 }
 
 async function getCategory(cat: string, guild: Guild) {
-    const category = guild.channels.cache.find(c => c.name.toLowerCase() === cat) as CategoryChannel;
-
-    if(!cat) return undefined;
-
-    if(category.children.size >= 20) return await category.clone();
     
-    else return category;
+    const cats: CategoryChannel[] = [];
+    guild.channels.cache.forEach(c => {
+       if(c.name.toLowerCase() === cat && c.type === 'GUILD_CATEGORY') {
+            cats.push(c as CategoryChannel);
+       }
+    })
+
+    if(cats.length === 0) return undefined;
+
+    const returnable = cats.find(c => c.children.size <= 30);
+    if(returnable) return returnable;
+
+    return await cats[0].clone();
 }   
 
 // Create a queue for category limits

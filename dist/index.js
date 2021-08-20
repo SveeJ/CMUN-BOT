@@ -121,38 +121,53 @@ require("fs");
             });
             await poi_ch.send({ embeds: [createEmbed("Archive chit by using `=archive`", constants_1.Constants.AQUA)] });
         }
-        else if (message.content === "=archive" && message.member.permissions.has('ADMINISTRATOR')) {
-            if (!(message.channel.parent?.name === 'chits')) {
+        else if (message.content === "=archive" && message.member.permissions.has('ADMINISTRATOR') && message.channel.type === 'GUILD_TEXT') {
+            if (!(message.channel.parent?.name.toLowerCase() === 'chits')) {
                 return;
             }
-            const archive = await getCategory('archive', guild);
-            if (!archive) {
+            const archive = guild.channels.cache.find(ch => ch.name.toLowerCase() === 'archives');
+            if (!archive || archive.type != 'GUILD_TEXT') {
                 message.reply({ embeds: [createEmbed("We encountered an issue. Please contact your nearest `CMUN IT Representative` for further assistance.", "RED")] });
                 return;
             }
-            message.channel.setParent(archive);
-            await message.channel.permissionOverwrites.create(guild.id, { VIEW_CHANNEL: false });
-            message.channel.send({ embeds: [createEmbed("Archived.", "RED")] });
+            const msgs = (await message.channel.messages.fetch()).map(m => m.content).reverse().join('\n\n');
+            archive.send({ embeds: [createEmbed(`Archive for: \`${message.channel.name}\``, "AQUA")], files: [{ name: "archive.txt", attachment: Buffer.from(msgs, 'utf-8') }] });
+            await message.channel.delete();
         }
-        else if (message.content.startsWith("=vote") && constants_1.Constants.EB_COMMAND_CHANNELS.includes(message.channel.id)) {
-            const motion = args.join(' ');
+        else if (message.content.startsWith("=vote") && message.channel.isText()) {
+            if (!(message.channel.name === 'eb-commands' && message.member.permissions.has('ADMINISTRATOR'))) {
+                message.reply({ embeds: [createEmbed("You cannot create a vote.", "RED")] });
+                return;
+            }
+            const last_arg = args[args.length - 1];
+            if (!last_arg)
+                return;
+            if (last_arg[0] != '(' || last_arg[last_arg.length - 1] != ')') {
+                message.reply({ embeds: [createEmbed(`Use \`=vote [Name] [(time)]\` to specify time. \n\n \`Example: =vote Test Motion (30)\``, "RED")] });
+                return;
+            }
+            const motion = args.slice(0, -1).join(' ');
             if (!motion) {
                 message.reply({ embeds: [createEmbed("Please enter a name for the motion to be voted on.", "RED")] });
                 return;
             }
-            const voting_ch = guild.channels.cache.get(constants_1.Constants.VOTING_CHANNELS[constants_1.Constants.GUILDS.indexOf(guild.id)]);
+            const time = args[args.length - 1].substring(1, args[args.length - 1].length - 1);
+            if (!(/^\d+$/.test(time))) {
+                message.reply({ embeds: [createEmbed(`Time specified must be a valid number.`, "RED")] });
+                return;
+            }
+            const voting_ch = guild.channels.cache.find(ch => ch.name === 'voting');
             const delRole = guild.roles.cache.find(r => r.name === "Delegate");
             if (!voting_ch || !delRole) {
                 message.reply({ embeds: [createEmbed("Something went wrong when trying to create a vote. I cannot identify the voting channel or the Delegate Role. Please contact your nearest `CMUN IT` representative.", "RED")] });
                 report(`Delegate role or Voting Channel cannot be found in ${guild.name}`);
                 return;
             }
-            const time = 60;
             let count = 1;
             const voteMessage = await voting_ch.send({ embeds: [createEmbed(`Voting on motion \`${motion}\`\n**In progress**\n\n**Timer**\nTime Left: ${time}s`, 'BLUE')], components: [buttonsRow(false, 0, 0)] });
             const interval = setInterval(() => {
                 if (!voteMessage.deleted) {
-                    voteMessage.edit({ embeds: [createEmbed(`Voting on motion \`${motion}\`\n**In progress**\n\n**Timer**\nTime Left: ${time - 5 * count}s`, 'BLUE')] });
+                    voteMessage.edit({ embeds: [createEmbed(`Voting on motion \`${motion}\`\n**In progress**\n\n**Timer**\nTime Left: ${parseInt(time) - 5 * count}s`, 'BLUE')] });
                 }
                 count++;
             }, 5000);
@@ -163,7 +178,7 @@ require("fs");
                 motion
             });
             message.reply({ embeds: [createEmbed("Vote has been created successfully!")] });
-            const voteCollector = voteMessage.createMessageComponentCollector({ componentType: 'BUTTON', time: 60000 });
+            const voteCollector = voteMessage.createMessageComponentCollector({ componentType: 'BUTTON', time: parseInt(time) * 1000 });
             voteCollector.on('collect', (i) => {
                 if (!i.isButton())
                     return;
@@ -196,11 +211,14 @@ require("fs");
                 if (!votes)
                     return;
                 const percentage = votes.votes.yes.count / (votes.votes.yes.count + votes.votes.no.count) * 100;
-                voteMessage.edit({ embeds: [createEmbed(`**Concluded**\nPercentage of 'yes votes' is \`${percentage.toFixed(2)}%\``, 'BLUE')], components: [buttonsRow(true, votes.votes.yes.count, votes.votes.no.count)] });
+                voteMessage.edit({ embeds: [createEmbed(`${motion}\n\n**Concluded**\nPercentage of 'yes votes' is \`${percentage.toFixed(2)}%\``, 'BLUE')], components: [buttonsRow(true, votes.votes.yes.count, votes.votes.no.count)] });
                 clearInterval(votes.interval);
-                const logChannel = await guild.channels.fetch('874174044612747338');
+                const logChannel = guild.channels.cache.find(ch => ch.name === 'voting-logs');
                 if (logChannel?.isText()) {
                     logChannel.send({ embeds: [votersResult(votes, delRole)] });
+                }
+                else {
+                    report(`Can't find voting-logs channel in ${guild.name}`);
                 }
                 votesCollection.delete(voteMessage.id);
             });
@@ -211,7 +229,7 @@ require("fs");
             if (!msgs)
                 return;
             msgs.forEach(msg => {
-                if (msg.content.split(" ").includes(message.author.id) && msg.content.split(" ")) {
+                if (msg.content.split(" ").includes(message.author.id)) {
                     userMsg.push(msg.content);
                 }
             });
@@ -228,7 +246,7 @@ require("fs");
                 }
                 const channel = await guild.channels.create(`${message.member.displayName}`, { type: "GUILD_TEXT", parent: cat, permissionOverwrites: [{ id: guild.id, deny: ['VIEW_CHANNEL'] }, { id: message.author.id, allow: ['VIEW_CHANNEL', 'SEND_MESSAGES', 'ATTACH_FILES', 'ADD_REACTIONS'] }] });
                 const ch = admin.channels.cache.get(constants_1.Constants.CHANNEL_LOG);
-                ch.send(`Channel: ${channel.id} User: ${message.author.id} Type: TEXT`).catch(() => null);
+                ch.send(`Channel: ${channel.id} User: ${message.author.id} Type: TEXT Member: ${message.member.displayName}`).catch(() => null);
             }
             else if (message.content.toLowerCase() === "=vc") {
                 if (userMsg.find(msg => msg.includes('VOICE'))) {
@@ -322,10 +340,25 @@ require("fs");
                     return;
                 }
                 const name = message.content.split(" ").slice(1).join(" ").substring(0, 100);
+                if (constants_1.Constants.BANNED_NAMES.includes(name)) {
+                    message.reply({ embeds: [createEmbed("You cannot rename your channel to that name. Please use another name.", "RED")] });
+                    return;
+                }
                 channel.setName(name).catch(() => null);
                 message.reply({ embeds: [createEmbed("Channel successfully renamed!", "GREEN")] });
             }
         }
+    });
+    client.on('channelDelete', async (ch) => {
+        const admin_ch = admin.channels.cache.get(constants_1.Constants.CHANNEL_LOG);
+        const msgs = (await (admin_ch).messages.fetch().catch(() => undefined));
+        const userMsg = [];
+        if (!msgs)
+            return;
+        const msg = msgs.find(m => m.content.split(" ").includes(ch.id));
+        if (!msg)
+            return;
+        admin_ch.messages.delete(msg);
     });
     logger.info("App is now online!");
 }();
@@ -353,11 +386,16 @@ function votersResult(votesData, delRole) {
         .addField('Didn\'t vote', noVoteMembers ? noVoteMembers : `\`None\``, true);
 }
 async function getCategory(cat, guild) {
-    const category = guild.channels.cache.find(c => c.name.toLowerCase() === cat);
-    if (!cat)
+    const cats = [];
+    guild.channels.cache.forEach(c => {
+        if (c.name.toLowerCase() === cat && c.type === 'GUILD_CATEGORY') {
+            cats.push(c);
+        }
+    });
+    if (cats.length === 0)
         return undefined;
-    if (category.children.size >= 20)
-        return await category.clone();
-    else
-        return category;
+    const returnable = cats.find(c => c.children.size <= 30);
+    if (returnable)
+        return returnable;
+    return await cats[0].clone();
 }
